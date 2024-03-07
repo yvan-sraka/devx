@@ -19,15 +19,17 @@ RUN DEBIAN_FRONTEND=noninteractive \
 
 RUN cat <<EOF >> $HOME/.bashrc
 CACHE_DIR="$HOME/.cache"
-if [ ! -d "$CACHE_DIR" ]; then
-    REPO_URL=$(git config --get remote.origin.url)
-    GITHUB_REPO=$(basename -s .git "$REPO_URL")
-    COMMIT_HASH=$(git rev-parse HEAD)
-    ARTIFACT_NAME="cache-${COMMIT_HASH}"
-    RUN_ID=$(curl -s -H "Authorization: token $GITHUB_TOKEN" -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/$GITHUB_REPO/actions/runs?branch=master&status=success&event=push&per_page=1" | jq -r --arg COMMIT_HASH "$COMMIT_HASH" '.workflow_runs[] | select(.head_sha==$COMMIT_HASH).id')
-    ARTIFACT_URL=$(curl -s -H "Authorization: token $GITHUB_TOKEN" -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/$GITHUB_REPO/actions/runs/$RUN_ID/artifacts" | jq -r --arg ARTIFACT_NAME "$ARTIFACT_NAME" '.artifacts[] | select(.name==$ARTIFACT_NAME).archive_download_url')
-    if [ ! -z "$ARTIFACT_URL" ]; then
-        curl -L -o "artifact.zstd" -H "Authorization: token $GITHUB_TOKEN" "$ARTIFACT_URL" && zstd -d "artifact.zstd" --output-dir-flat "$CACHE_DIR" && rm artifact.zstd
+if [ ! -d "\$CACHE_DIR" ]; then
+    REPO_URL=\$(git config --get remote.origin.url)
+    GITHUB_REPO=\$(basename -s .git "\$REPO_URL")
+    COMMIT_HASH=\$(git rev-parse HEAD)
+    ARTIFACT_NAME="cache-\$COMMIT_HASH"
+    RUN_ID=\$(curl -s -H "Authorization: token \$GITHUB_TOKEN" -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/\$GITHUB_REPO/actions/runs?branch=master&status=success&event=push&per_page=1" | jq -r --arg COMMIT_HASH "\$COMMIT_HASH" '.workflow_runs[] | select(.head_sha==\$COMMIT_HASH).id')
+    ARTIFACT_URL=\$(curl -s -H "Authorization: token \$GITHUB_TOKEN" -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/\$GITHUB_REPO/actions/runs/\$RUN_ID/artifacts" | jq -r --arg ARTIFACT_NAME "\$ARTIFACT_NAME" '.artifacts[] | select(.name==\$ARTIFACT_NAME).archive_download_url')
+    if [ ! -z "\$ARTIFACT_URL" ]; then
+        curl -L -o "artifact.zstd" -H "Authorization: token \$GITHUB_TOKEN" "\$ARTIFACT_URL"
+        zstd -d "artifact.zstd" --output-dir-flat "\$CACHE_DIR"
+        rm "artifact.zstd"
     fi
 fi
 # Handling the fragile way to get, e.g., `ghc8107-iog-env.sh` derivation path
