@@ -9,7 +9,7 @@ ARG IOG="false"
 
 RUN DEBIAN_FRONTEND=noninteractive \
  && apt-get update \
- && apt-get -y install curl git jq nix zstd \
+ && apt-get -y install curl gh git grep jq nix zstd \
  && curl -L https://raw.githubusercontent.com/input-output-hk/actions/latest/devx/support/fetch-docker.sh -o fetch-docker.sh \
  && chmod +x fetch-docker.sh \
  && SUFFIX='' \
@@ -18,20 +18,27 @@ RUN DEBIAN_FRONTEND=noninteractive \
  && ./fetch-docker.sh input-output-hk/devx $PLATFORM.$COMPILER_NIX_NAME$TARGET_PLATFORM${SUFFIX}-env | zstd -d | nix-store --import | tee store-paths.txt
 
 RUN cat <<EOF >> $HOME/.bashrc
-CACHE_DIR="$HOME/.cache"
-if [ ! -d "\$CACHE_DIR" ]; then
-    REPO_URL=\$(git config --get remote.origin.url)
-    GITHUB_REPO=\$(basename -s .git "\$REPO_URL")
+CACHE_DIR="\$HOME/.cache"
+if [ ! -d "\$CACHE_DIR" ] && [ -n "\$GITHUB_TOKEN" ]; then
+    echo "\$GITHUB_TOKEN" | gh auth login --with-token
     COMMIT_HASH=\$(git rev-parse HEAD)
-    ARTIFACT_NAME="cache-\$COMMIT_HASH"
-    RUN_ID=\$(curl -s -H "Authorization: token \$GITHUB_TOKEN" -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/\$GITHUB_REPO/actions/runs?branch=master&status=success&event=push&per_page=1" | jq -r --arg COMMIT_HASH "\$COMMIT_HASH" '.workflow_runs[] | select(.head_sha==\$COMMIT_HASH).id')
-    ARTIFACT_URL=\$(curl -s -H "Authorization: token \$GITHUB_TOKEN" -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/\$GITHUB_REPO/actions/runs/\$RUN_ID/artifacts" | jq -r --arg ARTIFACT_NAME "\$ARTIFACT_NAME" '.artifacts[] | select(.name==\$ARTIFACT_NAME).archive_download_url')
-    if [ ! -z "\$ARTIFACT_URL" ]; then
-        curl -L -o "artifact.zstd" -H "Authorization: token \$GITHUB_TOKEN" "\$ARTIFACT_URL"
-        zstd -d "artifact.zstd" --output-dir-flat "\$CACHE_DIR"
-        rm "artifact.zstd"
+    REPO_URL=\$(git config --get remote.origin.url)
+    if [[ "\$REPO_URL" =~ git@github.com:(.+)/(.+)\.git ]]; then
+        OWNER=\${BASH_REMATCH[1]}
+        REPO=\${BASH_REMATCH[2]}
+    elif [[ "\$REPO_URL" =~ https://github.com/(.+)/(.+).git ]]; then
+        OWNER=\${BASH_REMATCH[1]}
+        REPO=\${BASH_REMATCH[2]}
+    fi
+    if [ -n "\$COMMIT_HASH" ] && [ -n "\$OWNER" ] &&  [ -n "\$REPO" ]; then
+        ARTIFACT_NAME="cache-\$COMMIT_HASH"
+        ARTIFACT_URL=\$(gh api "repos/\$OWNER/\$REPO/actions/artifacts" --jq ".artifacts[] | select(.name==\"\$ARTIFACT_NAME\") | .archive_download_url" | head -n 1)
+        if [ -n "\$ARTIFACT_URL" ]; then
+            curl -L -o "artifact.zstd" -H "Authorization: token \$GITHUB_TOKEN" "\$ARTIFACT_URL"
+            zstd -d "artifact.zstd" --output-dir-flat "\$CACHE_DIR"
+            rm "artifact.zstd"
+        fi
     fi
 fi
-# Handling the fragile way to get, e.g., `ghc8107-iog-env.sh` derivation path
-echo "source $(tail -n 2 store-paths.txt | head -n 1)"
+source $(grep -m 1 -e '-env.sh$' store-paths.txt)
 EOF
